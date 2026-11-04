@@ -33,6 +33,7 @@ fbgram/
   __init__.py           version, one-paragraph rationale
   api.py                Graph API client (no CLI logic here)
   cli.py                argparse CLI + output formatting + passive checker
+                        (place aggregation: place_of / summarize_places)
   __main__.py           entry point: python -m fbgram
 agent.md                this file
 ```
@@ -88,7 +89,7 @@ There is no test suite (yet). Minimum bar after any change:
 ```bash
 python -m pip install -q -r requirements.txt
 python -m py_compile fbgram/*.py
-python -m fbgram --help            # all 8 subcommands listed
+python -m fbgram --help            # all 9 subcommands listed
 python -m fbgram checkuser <any-handle>   # token-free live path
 ```
 

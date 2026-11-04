@@ -24,7 +24,7 @@ PAGE_FIELDS = (
 )
 
 POST_FIELDS = (
-    "id,message,story,created_time,permalink_url,type,"
+    "id,message,story,created_time,permalink_url,type,place{id,name,location.city,location.country,location.latitude,location.longitude},"
     "shares,comments.summary(true).limit(0),reactions.summary(true).limit(0)"
 )
 
@@ -133,6 +133,11 @@ class GraphClient:
             paginate=True,
             max_items=limit,
         )
+
+    def locations(self, page_id: str, limit: int = 30) -> List[Dict[str, Any]]:
+        """Recent posts of a Page including their `place` object, for location
+        aggregation. Coverage lives in the CLI layer (many posts have none)."""
+        return self.page_posts(page_id, limit=limit)
 
     def post_comments(self, post_id: str, limit: int = 100) -> List[Dict[str, Any]]:
         return self.get(

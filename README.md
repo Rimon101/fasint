@@ -73,6 +73,7 @@ usage: fbgram [-h] [--token TOKEN] [--json] [--api-version V] {whoami,token,page
 | **`search <query>`** | public Pages matching a keyword |
 | **`posts <page> [--limit N]`** | recent posts + reactions / comments / shares per post |
 | **`audience <page>`** | ⭐ aggregate commenters (`name` + `user_id`) across recent posts |
+| **`locations <page>`** | tagged places from recent posts, ranked, with lat/long — the entity's physical footprint |
 | **`user <id>`** | the narrow fields Meta allows for a user id |
 | **`checkuser <name> ...`** | passive existence check for `facebook.com/<name>` — no token |
 
@@ -86,6 +87,7 @@ python -m fbgram search "coffee london" --limit 15
 python -m fbgram page nasa
 python -m fbgram posts nasa --limit 5
 python -m fbgram audience nasa --limit 10 --top 30
+python -m fbgram locations nasa --limit 50 --top 10
 python -m fbgram posts nasa --json | jq '.[0]'
 ```
 

@@ -62,14 +62,31 @@ def table(rows: List[Dict[str, Any]], columns: List[str], as_json: bool = False)
         print("  ".join(str(row.get(c, "")).ljust(widths[c]) for c in columns))
 
 
+def place_of(post: Dict[str, Any]) -> Dict[str, Any]:
+    """Extract the `place` object from a post, normalized; {} if absent."""
+    place = post.get("place") or {}
+    if not isinstance(place, dict) or not place.get("name"):
+        return {}
+    loc = place.get("location") or {}
+    return {
+        "name": place.get("name", ""),
+        "city": loc.get("city") or "",
+        "country": loc.get("country") or "",
+        "lat": loc.get("latitude"),
+        "lng": loc.get("longitude"),
+    }
+
+
 def summarize_post(post: Dict[str, Any]) -> Dict[str, Any]:
     interactions = post.get("reactions", {}).get("summary", {}).get("total_count", 0)
     comments = post.get("comments", {}).get("summary", {}).get("total_count", 0)
     shares = post.get("shares", {}).get("count", 0)
     message = (post.get("message") or post.get("story") or "").replace("\n", " ")[:80]
+    place = place_of(post)
     return {
         "created": (post.get("created_time") or "")[:10],
         "msg": message,
+        "place": place.get("name", ""),
         "react": interactions,
         "comments": comments,
         "shares": shares,
@@ -159,7 +176,52 @@ def cmd_posts(args: argparse.Namespace) -> None:
     if args.json:
         out(posts, as_json=True)
     else:
-        table(rows, ["created", "msg", "react", "comments", "shares", "id"])
+        table(rows, ["created", "msg", "place", "react", "comments", "shares", "id"])
+
+
+def summarize_places(posts: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Aggregate tagged places across posts. Posts without a `place` are
+    tracked only for the coverage line. Ordered: most-tagged first."""
+    by_name: Dict[str, Dict[str, Any]] = {}
+    tagged = 0
+    for post in posts:
+        place = place_of(post)
+        if not place:
+            continue
+        tagged += 1
+        key = place["name"]
+        entry = by_name.setdefault(
+            key,
+            {
+                "place": key,
+                "city": place.get("city", ""),
+                "country": place.get("country", ""),
+                "lat": place.get("lat"),
+                "lng": place.get("lng"),
+                "count": 0,
+                "first_seen": post.get("created_time", "")[:10],
+                "last_seen": post.get("created_time", "")[:10],
+                "post_ids": [],
+            },
+        )
+        entry["count"] += 1
+        entry["post_ids"].append(post.get("id"))
+        seen = post.get("created_time", "")[:10]
+        if seen:
+            if not entry["first_seen"]:  # posts may not be chronologically sorted
+                entry["first_seen"] = seen
+            if entry["first_seen"] and seen < entry["first_seen"]:
+                entry["first_seen"] = seen
+            if entry["last_seen"] and seen > entry["last_seen"]:
+                entry["last_seen"] = seen
+
+    for entry in by_name.values():
+        entry["post_ids"] = entry["post_ids"][-5:]  # cap to keep output sane
+
+    ranked = sorted(by_name.values(), key=lambda e: (-e["count"], e["place"]))
+    for entry in ranked:
+        entry["coverage"] = {"tagged": tagged, "posts": len(posts)}
+    return ranked
 
 
 def cmd_audience(args: argparse.Namespace) -> None:
@@ -206,6 +268,53 @@ def cmd_checkuser(args: argparse.Namespace) -> None:
 # ---------------------------------------------------------------------------
 # parser
 
+def cmd_locations(args: argparse.Namespace) -> None:
+    """Aggregate the `place` objects attached to a Page's recent posts —
+    where the entity physically operates, per what Facebook stores."""
+    posts = client_for(args).locations(args.page, limit=args.limit)
+    ranked = summarize_places(posts)
+    tagged = sum(e["count"] for e in ranked)
+    untagged = max(0, len(posts) - tagged)
+
+    if args.json:
+        print(
+            json.dumps(
+                {
+                    "coverage": {
+                        "posts": len(posts),
+                        "tagged": tagged,
+                        "untagged": untagged,
+                    },
+                    "locations": ranked,
+                },
+                indent=2,
+                default=str,
+            )
+        )
+        return
+
+    table_rows = [
+        {
+            "place": e["place"],
+            "city": e["city"],
+            "country": e["country"],
+            "lat/long": (
+                f"{e['lat']:.4f} / {e['lng']:.4f}" if e["lat"] is not None and e["lng"] is not None else ""
+            ),
+            "tags": e["count"],
+            "first_seen": e["first_seen"],
+            "last_seen": e["last_seen"],
+        }
+        for e in ranked
+    ]
+    table(table_rows, ["place", "city", "country", "lat/long", "tags", "first_seen", "last_seen"])
+    print(
+        f"\n{len(ranked)} distinct locations across {len(posts)} posts "
+        f"({tagged} post{'s' if tagged != 1 else ''} had a place; "
+        f"{untagged} had none)."
+    )
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="fbgram",
@@ -245,6 +354,15 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("page", help="Page id or vanity name")
     p.add_argument("--limit", type=int, default=20)
     p.set_defaults(func=cmd_posts)
+
+    p = sub.add_parser(
+        "locations",
+        help="aggregate the tagged places on a Page's recent posts",
+    )
+    p.add_argument("page", help="Page id or vanity name")
+    p.add_argument("--limit", type=int, default=30, help="posts to scan")
+    p.add_argument("--top", type=int, default=20, help="show this many")
+    p.set_defaults(func=cmd_locations)
 
     p = sub.add_parser("audience", help="aggregate commenters on a Page's recent posts")
     p.add_argument("page", help="Page id or vanity name")
