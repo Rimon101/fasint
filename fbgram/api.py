@@ -6,6 +6,7 @@ browser, imitates a session, or side-steps Meta's terms of service.
 """
 
 import os
+import time
 from typing import Any, Dict, Iterable, List, Optional
 
 import requests
@@ -27,6 +28,15 @@ POST_FIELDS = (
     "id,message,story,created_time,permalink_url,type,place{id,name,location.city,location.country,location.latitude,location.longitude},"
     "shares,comments.summary(true).limit(0),reactions.summary(true).limit(0)"
 )
+
+# Fields requested for /search hits so the `fans` column is not always blank.
+SEARCH_FIELDS = "id,name,category,fan_count,followers_count"
+
+# Graph error codes worth retrying instead of failing the command: unknown /
+# temporary server errors (1, 2) and rate-limiting / throttling (4, 17, 32,
+# 613). Retried with backoff, honoring Retry-After when Meta sends one.
+RETRYABLE_ERROR_CODES = frozenset({1, 2, 4, 17, 32, 613})
+MAX_RETRIES = 3
 
 
 def token_from_env() -> Optional[str]:
@@ -62,29 +72,58 @@ class GraphClient:
         max_items: Optional[int] = None,
     ) -> Any:
         """GET an endpoint. With paginate=True, follow `next` links and return
-        a flat list of edge items (used for posts, comments, search results)."""
+        a flat list of edge items (used for posts, comments, search results).
+        Transient failures (HTTP 429/5xx, Graph codes 1/2/4/17/32/613) are
+        retried with backoff, honoring Retry-After."""
         params = dict(params or {})
         params["access_token"] = self.token
         if fields:
             params["fields"] = fields
 
         def call(url: str, p: Dict[str, Any]) -> Dict[str, Any]:
-            resp = self.session.get(url, params=p, timeout=30)
-            body: Dict[str, Any]
-            try:
-                body = resp.json()
-            except ValueError:
-                raise GraphError(
-                    f"Non-JSON response (HTTP {resp.status_code})", resp.status_code, {}
+            attempt = 0
+            while True:
+                resp = self.session.get(url, params=p, timeout=30)
+                body: Dict[str, Any]
+                parse_failed = False
+                try:
+                    body = resp.json()
+                except ValueError:
+                    body = {}
+                    parse_failed = True
+                err: Dict[str, Any] = {}
+                if isinstance(body, dict):
+                    err = body.get("error") or {}
+                try:
+                    code = int(err.get("code"))
+                except (TypeError, ValueError):
+                    code = None
+                retryable = (
+                    resp.status_code == 429
+                    or resp.status_code >= 500
+                    or code in RETRYABLE_ERROR_CODES
                 )
-            if resp.status_code != 200 or "error" in body:
-                err = body.get("error", {})
-                raise GraphError(
-                    err.get("message", f"HTTP {resp.status_code}"),
-                    resp.status_code,
-                    body,
-                )
-            return body
+                if retryable and attempt < MAX_RETRIES:
+                    # Honor Retry-After when Meta sends one; otherwise back
+                    # off 1s, 2s, 4s. Cap both so a bad header can't stall us.
+                    try:
+                        delay = min(float(resp.headers.get("Retry-After")), 60.0)
+                    except (TypeError, ValueError):
+                        delay = min(2.0 ** attempt, 30.0)
+                    time.sleep(delay)
+                    attempt += 1
+                    continue
+                if parse_failed:
+                    raise GraphError(
+                        f"Non-JSON response (HTTP {resp.status_code})", resp.status_code, {}
+                    )
+                if resp.status_code != 200 or "error" in body:
+                    raise GraphError(
+                        err.get("message", f"HTTP {resp.status_code}"),
+                        resp.status_code,
+                        body,
+                    )
+                return body
 
         url = f"{GRAPH_URL}/{self.version}/{path.lstrip('/')}"
         body = call(url, params)
@@ -120,6 +159,7 @@ class GraphClient:
     def page_search(self, query: str, limit: int = 10) -> List[Dict[str, Any]]:
         return self.get(
             "search",
+            fields=SEARCH_FIELDS,
             params={"q": query, "type": "page", "limit": limit},
             paginate=True,
             max_items=limit,

@@ -23,6 +23,7 @@ pulls together everything Facebook officially exposes about it:
 | 🔎 **Page dossiers** | category, followers, about text, website, contact fields, verified status, creation date |
 | 🧭 **Page discovery** | keyword search over all public Pages |
 | 📊 **Content analysis** | recent posts with reactions, comments and shares — see what performs |
+| ⏱️ **Engagement analytics** | posting cadence (best hour / weekday, page-local) and per-post engagement rate — see *what* and *when* performs |
 | 👥 **Audience mapping** | who actually *engages* — commenters aggregated across a Page's posts, with names and user IDs |
 | 🪪 **Identity checks** | does `facebook.com/<username>` exist? passive probe, no token needed |
 | 🔐 **Self-verification** | exactly what your access token can and can't see, before you start |
@@ -62,7 +63,8 @@ python -m fbgram whoami   # who the token belongs to
 ## 📟 Commands
 
 ```
-usage: fbgram [-h] [--token TOKEN] [--json] [--api-version V] {whoami,token,page,user,search,posts,audience,checkuser} ...
+usage: fbgram [-h] [--token TOKEN] [--json | --csv] [--api-version V]
+              {whoami,token,page,user,search,posts,engagement,locations,audience,checkuser} ...
 ```
 
 | command | what it gives you |
@@ -72,13 +74,15 @@ usage: fbgram [-h] [--token TOKEN] [--json] [--api-version V] {whoami,token,page
 | **`page <id-or-handle>`** | full public metadata: category, fans, about, website, emails, phone, verification |
 | **`search <query>`** | public Pages matching a keyword |
 | **`posts <page> [--limit N]`** | recent posts + reactions / comments / shares per post |
+| **`posts <page> [--limit N]`** | recent posts + reactions / comments / shares per post |
+| **`engagement <page> [--limit N]`** | ⭐ posting cadence (best hour/day, page-local) + per-post engagement ranked by interactions |
 | **`audience <page>`** | ⭐ aggregate commenters (`name` + `user_id`) across recent posts |
 | **`locations <page>`** | tagged places from recent posts, ranked, with lat/long — the entity's physical footprint |
 | **`user <id>`** | the narrow fields Meta allows for a user id |
-| **`checkuser <name> ...`** | passive existence check for `facebook.com/<name>` — no token |
+| **`checkuser <name> ... [--jobs N]`** | passive existence check for `facebook.com/<name>` — no token; `--jobs N` probes in parallel |
 
-Global flags: `--token`, `--api-version` (default `v21.0`), `--json` for raw
-machine-readable output in every command.
+Global flags: `--token`, `--api-version` (default `v21.0`), and `--json` or
+`--csv` for machine-readable output in every command (mutually exclusive).
 
 ### Examples
 
@@ -86,9 +90,12 @@ machine-readable output in every command.
 python -m fbgram search "coffee london" --limit 15
 python -m fbgram page nasa
 python -m fbgram posts nasa --limit 5
+python -m fbgram engagement nasa --limit 100
 python -m fbgram audience nasa --limit 10 --top 30
 python -m fbgram locations nasa --limit 50 --top 10
 python -m fbgram posts nasa --json | jq '.[0]'
+python -m fbgram posts nasa --csv > posts.csv
+python -m fbgram checkuser user1 user2 user3 --jobs 8
 ```
 
 ### What output looks like
@@ -126,7 +133,7 @@ to fix:
 | --- | --- |
 | Personal profiles return almost nothing via `user <id>` — usually just `id`, `name`, `link` | Meta exposes strangers' data to *no one's* token; friends / photos / emails require the person's own consent |
 | `search` may error with a plain token | public Page search needs the `Page Public Content Access` permission and, in production, an app review by Meta |
-| Rate limits apply | official API, official throttling — don't hammer it |
+| Rate limits apply | official API, official throttling — fbgram retries transient throttling (HTTP 429/5xx, Graph codes 4/17/32) with backoff, but don't hammer it |
 | `checkuser` can say "inconclusive" | Facebook's login wall + anti-bot responses make some probes unresolvable from outside |
 
 ### 🙃 Why not like Osintgram?
