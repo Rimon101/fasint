@@ -1,100 +1,200 @@
-# fbgram
+<div align="center">
 
-A Facebook OSINT command-line tool in the spirit of
-[Osintgram](https://github.com/datalux/osintgram) — table output, subcommand
-style, focused on public data collection.
+# 🕵️ fbgram
 
-## Why it works differently from Osintgram
+**A Facebook OSINT tool — in the spirit of [Osintgram](https://github.com/datalux/osintgram), built for what Facebook actually allows.**
 
-Osintgram drives a logged-in Instagram account through Instagram's
-semi-private endpoints. **Facebook has no equivalent**, and Meta actively bans
-scraping or session automation: doing it gets the operator's account
-restricted and breaks within days at best. In some jurisdictions
-(unauthorised access laws like the CFAA, GDPR for personal data collection)
-it is also a legal risk for you, the operator.
+[![python](https://img.shields.io/badge/python-3.8%2B-blue.svg)](https://www.python.org)
+[![deps](https://img.shields.io/badge/dependencies-1%20(requests)-green.svg)](requirements.txt)
+[![cli](https://img.shields.io/badge/interface-CLI-informational.svg)](#-commands)
+[![license](https://img.shields.io/badge/license-unlicensed-lightgrey.svg)](#-ethics--legal)
 
-So fbgram does something narrower and honest — it only uses what Facebook
-officially exposes:
+</div>
 
-1. **The Graph API**, with an access token from *your* Meta developer app.
-   This covers public **Pages** (businesses, orgs, creators) — which are the
-   Facebook entities with genuinely public data.
-2. **Passive public checks** over plain HTTPS, no login, no account —
-   username-existence probes in the style of
-   [Sherlock](https://github.com/sherlock-project/sherlock).
-3. The [lockfale OSINT-Framework](https://github.com/lockfale/OSINT-Framework)
-   remains useful for the parts Facebook intentionally does not expose:
-   breach-data lookup, breach-email search, face-search and so on all live
-   outside of Meta's API by design. fbgram does not try to replicate those.
+---
 
-It collects and reports only data Meta exposes to the token you authorized.
+## ✨ What it does
 
-## Install
+You give it a target — a public **Page**, a keyword, or a username — and it
+pulls together everything Facebook officially exposes about it:
+
+| | |
+| --- | --- |
+| 🔎 **Page dossiers** | category, followers, about text, website, contact fields, verified status, creation date |
+| 🧭 **Page discovery** | keyword search over all public Pages |
+| 📊 **Content analysis** | recent posts with reactions, comments and shares — see what performs |
+| 👥 **Audience mapping** | who actually *engages* — commenters aggregated across a Page's posts, with names and user IDs |
+| 🪪 **Identity checks** | does `facebook.com/<username>` exist? passive probe, no token needed |
+| 🔐 **Self-verification** | exactly what your access token can and can't see, before you start |
+
+Think *Osintgram's UX — `page`, `audience`, `checkuser` — applied to
+Facebook's open surface: public Pages, not private people. See
+[Why not like Osintgram?](#-why-not-like-osintgram).
+
+---
+
+## ⚙️ Quick start
 
 ```bash
+git clone <this-repo> && cd fbgram
 pip install -r requirements.txt
 ```
 
-## Get a token
+Grab a token (once):
 
-1. Create an app at <https://developers.facebook.com/apps> (type "Business"
-   or "Consumer").
-2. Get a short-lived token at
-   <https://developers.facebook.com/tools/explorer>, then exchange it for a
-   long-lived one (see Meta docs: "Long-Lived Access Tokens").
-3. Export it:
+1. Create an app at <https://developers.facebook.com/apps> — type **Business** or **Consumer**.
+2. Get a short-lived token in the [Graph API Explorer](https://developers.facebook.com/tools/explorer).
+3. Exchange it for a **long-lived token** (Meta docs → *"Long-Lived Access Tokens"*).
+4. `export FBGRAM_TOKEN="EAAB..."`
+
+Then:
 
 ```bash
-export FBGRAM_TOKEN="EAAB..."
+python -m fbgram token    # sanity check: scopes + expiry + app
+python -m fbgram whoami   # who the token belongs to
 ```
 
-## Commands
+> 💡 `checkuser` works **right now, with no token**:
+> `python -m fbgram checkuser zuck`
 
-| command | what it does |
+---
+
+## 📟 Commands
+
+```
+usage: fbgram [-h] [--token TOKEN] [--json] [--api-version V] {whoami,token,page,user,search,posts,audience,checkuser} ...
+```
+
+| command | what it gives you |
 | --- | --- |
-| `whoami` | the identity the token belongs to |
-| `token` | scopes, expiry and app of the token (good first sanity check) |
-| `page <id-or-handle>` | full metadata for a public Page (category, fans, about, contact fields, verification) |
-| `search <query>` | search public Pages by keyword |
-| `posts <page> [--limit N]` | recent Page posts with reactions / comments / shares |
-| `audience <page>` | aggregate the commenters (`name` + `user_id`) across the Page's recent posts — the closest analog to Osintgram's targeted-user lookups |
-| `user <id>` | the very limited public fields Meta allows for a user id |
-| `checkuser <username>...` | passive: does `facebook.com/<username>` exist? no token needed |
+| **`whoami`** | the identity the token belongs to |
+| **`token`** | scopes, expiry, and app behind the token — run this first |
+| **`page <id-or-handle>`** | full public metadata: category, fans, about, website, emails, phone, verification |
+| **`search <query>`** | public Pages matching a keyword |
+| **`posts <page> [--limit N]`** | recent posts + reactions / comments / shares per post |
+| **`audience <page>`** | ⭐ aggregate commenters (`name` + `user_id`) across recent posts |
+| **`user <id>`** | the narrow fields Meta allows for a user id |
+| **`checkuser <name> ...`** | passive existence check for `facebook.com/<name>` — no token |
 
-Global flags: `--token`, `--api-version` (default v21.0), `--json`.
+Global flags: `--token`, `--api-version` (default `v21.0`), `--json` for raw
+machine-readable output in every command.
 
-Examples:
+### Examples
 
 ```bash
-python -m fbgram token
-python -m fbgram whoami
 python -m fbgram search "coffee london" --limit 15
 python -m fbgram page nasa
 python -m fbgram posts nasa --limit 5
 python -m fbgram audience nasa --limit 10 --top 30
-python -m fbgram checkuser zuck some_hypothetical_handle
+python -m fbgram posts nasa --json | jq '.[0]'
 ```
 
-## Honest limits
+### What output looks like
 
-- **Personal profiles are intentionally locked-down.** `user <id>` will
-  usually return only `id`, `name` and `link`/`picture` at most, if the token
-  owner is allowed to see the profile. Anything more (friends, photos, likes
-  on friends' content, email/phone) requires the *data subject's* consent via
-  Login deliverables like `user_friends`; you cannot look those up about a
-  stranger. This is by design, not a bug to work around.
-- **Page search** requires `Page Public Content Access` and (in production)
-  an app review by Meta; with a plain app token or the Graph API Explorer
-  token it may return an error. Instagram has equivalent tokens; the tool
-  won't fake it around.
-- Rate limits apply; don't hammer the API.
-- `checkuser` is a heuristic — Facebook's anti-bot wall returns 200 for many
-  handles (real or not) and redirects to login for others, so "not found" is
-  the only definitive verdict it can give; anything else is a lead, not proof.
+**`audience`** — ranked, deduplicated engagement:
 
-## Ethics
+```
+name                    comments  user_id
+----------------------  --------  --------------------
+Jane Q. Researcher      14        100001234567890
+gizmo_fan_1994          9         100099887766554
+...
+42 distinct commenters across 10 posts.
+```
 
-Use this only for OSINT on entities you are permitted to research (public
-Pages, your own accounts, research with a lawful basis). Do not use it to
-harvest personal data at scale or to target individuals; Meta's ToS and most
-privacy laws prohibit it. Missing any of this changes — feel free to ask.
+**`checkuser`** — the anti-bot reality of Facebook, honestly reported:
+
+```
+username  status  verdict                                 url
+--------  ------  --------------------------------------  --------------------------
+zuck      200     may exist (HTTP 200 — verify manually)  https://www.facebook.com/…
+```
+
+> ⚠️ Facebook serves HTTP 200 for many handles — real or not. **Only a 404
+> is a definitive "not found"**; anything else is a lead, not proof.
+
+---
+
+## 🚧 Honest limits
+
+Read before filing issues — these are **by design**, in Meta's API, not bugs
+to fix:
+
+| limit | why |
+| --- | --- |
+| Personal profiles return almost nothing via `user <id>` — usually just `id`, `name`, `link` | Meta exposes strangers' data to *no one's* token; friends / photos / emails require the person's own consent |
+| `search` may error with a plain token | public Page search needs the `Page Public Content Access` permission and, in production, an app review by Meta |
+| Rate limits apply | official API, official throttling — don't hammer it |
+| `checkuser` can say "inconclusive" | Facebook's login wall + anti-bot responses make some probes unresolvable from outside |
+
+### 🙃 Why not like Osintgram?
+
+Osintgram drives a **logged-in Instagram session** through semi-private
+endpoints. Facebook has no equivalent: scraping or session automation gets
+the operator's account restricted within days and creates real legal
+exposure (CFAA, GDPR) — and it breaks constantly. So fbgram deliberately
+does the *narrower, working* version:
+
+- ✅ official Graph API with a token **you** own
+- ✅ passive public HTTPS checks (Sherlock-style)
+- ❌ no scraping, no fake sessions, no credential harvesting
+
+Where you'd have used Osintgram's `fwers` / `follow_type` on a person, the
+Facebook answer is **`audience` on a Page** — or the
+[lockfale OSINT-Framework](https://github.com/lockfale/OSINT-Framework) for
+the things outside Meta entirely (breaches, email traces, face search).
+
+---
+
+## 🧰 Troubleshooting
+
+| symptom | fix |
+| --- | --- |
+| `No access token…` | export `FBGRAM_TOKEN` or pass `--token` |
+| `error: ...` with hint *— check the token* (HTTP 401/190) | token expired or invalid; refresh it, run `token` to inspect |
+| `...does not cover this data` (HTTP 403) | your app lacks the permission; see [Honest limits](#-honest-limits) |
+| empty `search` results | likely permission issue — see above |
+| Windows console mojibake in tables | `chcp 65001` or `set PYTHONIOENCODING=utf-8` |
+
+---
+
+## 🐚 OS common pitfalls (Windows users)
+
+```bash
+# always forward slashes in bam; bash-on-windows is POSIX
+cd C:/Users/you/fbgram        # ✅   not  C:\Users\you\fbgram
+```
+
+---
+
+## 📁 Project layout
+
+```
+fbgram/
+  api.py      Graph API client — auth, pagination, typed errors, field sets
+  cli.py      argparse CLI, command implementations, output formatting,
+              passive checkuser probe (the only token-free network call)
+  __main__.py `python -m fbgram` entry point
+README.md     ← you are here
+agent.md      conventions for agents/contributors extending the tool
+```
+
+---
+
+## ⚖️ Ethics & legal
+
+This tool collects **only** what Meta officially exposes to the token *you*
+authorized. Please use it for research you're permitted to do: public Pages,
+your own accounts, lawful due diligence.
+
+**Do not** use it to profile individuals, harvest personal data at scale, or
+work around the limits listed above — that's against Meta's Terms of Service
+and, depending on where you live, the law. "It broke my account" is a
+supported issue; "it got me sued" is not.
+
+---
+
+<div align="center">
+<sub>Inspired by <a href="https://github.com/datalux/osintgram">datalux/osintgram</a>
+· framework reference: <a href="https://github.com/lockfale/OSINT-Framework">lockfale/OSINT-Framework</a></sub>
+</div>
